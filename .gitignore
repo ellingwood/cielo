@@ -4,3 +4,5 @@
 *.db-shm
 web/node_modules
 web/dist
+bin
+.DS_Store
