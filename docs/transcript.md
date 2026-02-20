@@ -83,4 +83,77 @@ Kanban board with drag-and-drop (dnd-kit), card detail modals, markdown descript
 
 ---
 
-*Next up: Implementation planning and build.*
+## Phase 2: Implementation
+
+**Date:** 2026-02-19
+
+### Approach
+
+Full-stack implementation in a single session. Go backend first, then React frontend, then Docker Compose to tie it all together. Target: a running application at `http://localhost:8080`.
+
+### Go Backend
+
+Built the complete backend in Go with Fiber v3:
+
+- **SQLite schema** — 7 tables (boards, lists, cards, card_dependencies, labels, card_labels, activity_log) with foreign keys, cascade deletes, and CHECK constraints. WAL journal mode for concurrent reads.
+- **Store layer** — Repository pattern with `Store` interface and full SQLite implementation (~450 lines). Dynamic query building for card search with optional JOIN filtering by label.
+- **Event bus** — In-process pub/sub with board-scoped channels. Non-blocking publish, atomic sequence IDs. 64-slot buffered channels per subscriber.
+- **Service layer** — Shared business logic between HTTP API and MCP. Validates inputs, logs activity, publishes events. Auto-sets card status on assign/unassign.
+- **HTTP API** — Full REST under `/api/v1` with 22 routes: CRUD for boards, lists, cards, labels. Plus move, assign, dependencies, search, activity, and SSE.
+- **MCP server** — JSON-RPC 2.0 dispatcher handling `initialize`, `tools/list`, `tools/call`. 20 tools (7 read + 13 write) with full JSON Schema input definitions. MCP protocol version 2025-11-25.
+- **SSE endpoint** — Board-scoped Server-Sent Events with `Last-Event-ID` reconnection support.
+- **12 unit tests** — store layer (migrations, board/list/card CRUD, move, dependencies, labels, activity, search) and event bus (subscribe/publish, board scoping, multiple subscribers). All passing.
+
+### React Frontend
+
+Built with React 19 + TypeScript + Vite + Tailwind CSS v4:
+
+- **API client** — Typed fetch wrappers for all endpoints with error handling.
+- **TanStack Query hooks** — 17 hooks covering all CRUD operations with cache invalidation.
+- **Board list page** — Grid of boards with create/delete.
+- **Kanban board view** — Full drag-and-drop with dnd-kit (PointerSensor, closestCorners collision). DragOverlay for visual feedback during drags. Cards show priority color dots, assignee badges, label chips.
+- **Card detail modal** — Inline title editing, status/priority dropdowns, assignee input, description textarea, label management, dependency management (add/remove), full activity feed. All changes save on blur.
+- **SSE integration** — `useSSE` hook creates EventSource per board, invalidates query cache on events for automatic UI refresh.
+
+### Docker Setup
+
+Multi-stage Dockerfile:
+1. `node:22-alpine` — builds frontend (`npm ci` + `npm run build`)
+2. `golang:1.25-alpine` — builds backend (`CGO_ENABLED=0 go build`)
+3. `alpine:3.21` — runtime with just the binary + static files
+
+Docker Compose exposes port 8080 with a named volume for SQLite persistence at `/data/cielo.db`.
+
+### Issues Encountered & Fixed
+
+1. **Go version mismatch** — `go.mod` requires 1.25, initial Dockerfile used `golang:1.24`. Fixed by updating to `golang:1.25-alpine`.
+2. **Private npm registry in lockfile** — `package-lock.json` pointed to a private JFrog Artifactory. Regenerated with public registry.
+3. **Binary committed to git** — 18MB `cielo` binary accidentally tracked. Removed with `git rm --cached`, added `.gitignore`.
+4. **Overly broad .gitignore** — Pattern `cielo` matched `cmd/cielo/` directory. Fixed to `/cielo` (root only).
+5. **Type assertion error** — `[]any{}.([]any)` invalid in Go. Changed to `return c.JSON([]any{})`.
+6. **TypeScript verbatimModuleSyntax** — DragEndEvent/DragStartEvent imported as values. Fixed with `type` keyword imports.
+
+### Verification
+
+End-to-end testing confirmed:
+- Frontend serves at `http://localhost:8080` with SPA routing
+- Board CRUD, list CRUD, card CRUD all functional
+- Card move, assign (with auto-status), dependencies, labels all working
+- Search by title/description returns correct results
+- Activity log tracks all mutations with actor/action/detail/timestamp
+- MCP server responds to `initialize`, `tools/list`, `tools/call` — all 20 tools operational
+- SSE events fire on mutations and trigger frontend cache invalidation
+- Docker Compose builds and runs successfully with persistent storage
+
+### Final State
+
+Single `docker compose up` serves a fully functional Trello clone at `http://localhost:8080` with:
+- Kanban board UI with drag-and-drop
+- Full REST API for frontend
+- 20-tool MCP server for AI agent access
+- Real-time SSE updates
+- SQLite persistence with WAL mode
+
+---
+
+*Build complete.*
