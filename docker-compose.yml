@@ -1,0 +1,14 @@
+services:
+  cielo:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - CIELO_HTTP_ADDR=:8080
+      - CIELO_DB_PATH=/data/cielo.db
+    volumes:
+      - cielo-data:/data
+    restart: unless-stopped
+
+volumes:
+  cielo-data:
